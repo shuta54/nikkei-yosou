@@ -34,29 +34,46 @@ describe('recordFromDraft', () => {
     if (!res.ok) expect(res.errors.futures).toBeDefined()
   })
 
-  it('補正②の金額が0以外で根拠が空なら保存できない', () => {
+  it('補正の金額が0以外でメモが空なら保存できない', () => {
     const { draft } = newDraft(now, [])
-    const adj = { id: 'a', kind: 'ドル円', amount: '50', note: '  ' }
-    const res = recordFromDraft({ ...draft, futures: '70500', adj2: [adj] }, undefined, [])
+    const res = recordFromDraft({ ...draft, futures: '70500', adjAmount: '50', adjNote: '  ' }, undefined, [])
     expect(res.ok).toBe(false)
-    if (!res.ok) expect(res.errors['a.note']).toBeDefined()
+    if (!res.ok) expect(res.errors.adjNote).toBeDefined()
   })
 
-  it('補正②の金額が0なら根拠は空でよい', () => {
+  it('補正を入れると1件として保存する', () => {
     const { draft } = newDraft(now, [])
-    const adj = { id: 'a', kind: 'ドル円', amount: '0', note: '' }
-    expect(recordFromDraft({ ...draft, futures: '70500', adj2: [adj] }, undefined, []).ok).toBe(true)
+    const res = recordFromDraft({ ...draft, futures: '70500', adjAmount: '-30', adjNote: 'ダウ -1.2%' }, undefined, [])
+    expect(res.ok && res.record.adj2.map((a) => [a.amount, a.note])).toEqual([[-30, 'ダウ -1.2%']])
   })
 
-  it('朝の修正でも、補正②の根拠が空なら保存できない', () => {
+  it('補正が0ならメモは空でよく、補正は保存しない', () => {
+    const { draft } = newDraft(now, [])
+    const res = recordFromDraft({ ...draft, futures: '70500', adjAmount: '0', adjNote: '消し忘れのメモ' }, undefined, [])
+    expect(res.ok && res.record.adj2).toEqual([])
+  })
+
+  it('朝の修正でも、補正のメモが空なら保存できない', () => {
     const d = startMorningFix(draftFromRecord(rec1005), now)
-    const res = recordFromDraft(
-      { ...d, morningFutures: '70600', morningAdj2: [{ id: 'm', kind: 'その他', amount: '-10', note: '' }] },
-      rec1005,
-      [rec1005],
-    )
+    const res = recordFromDraft({ ...d, morningFutures: '70600', morningAdjAmount: '-10', morningAdjNote: '' }, rec1005, [rec1005])
     expect(res.ok).toBe(false)
-    if (!res.ok) expect(res.errors['m.note']).toBeDefined()
+    if (!res.ok) expect(res.errors.morningAdjNote).toBeDefined()
+  })
+
+  it('補正が複数ある古い記録は1件にまとめて見せ、編集しなければ元の形のまま保存する', () => {
+    const old = {
+      ...rec1005,
+      adj2: [
+        { id: 'a', kind: 'ドル円', amount: 100, note: 'a' },
+        { id: 'b', kind: '直近の傾向', amount: -40, note: 'b' },
+      ],
+    }
+    const d = draftFromRecord(old)
+    expect([d.adjAmount, d.adjNote]).toEqual(['60', 'ドル円 +100：a / 直近の傾向 -40：b'])
+    const same = recordFromDraft(d, old, [old])
+    expect(same.ok && same.record.adj2).toEqual(old.adj2)
+    const edited = recordFromDraft({ ...d, adjAmount: '70' }, old, [old])
+    expect(edited.ok && edited.record.adj2.map((a) => [a.amount, a.note])).toEqual([[70, 'ドル円 +100：a / 直近の傾向 -40：b']])
   })
 
   it('同じ対象日の記録が別にあれば保存できない', () => {
@@ -82,7 +99,7 @@ describe('recordFromDraft', () => {
 
   it('朝に修正すると夜の補正が写され、夜の入力も残る', () => {
     const d = startMorningFix(draftFromRecord(rec1005), now)
-    expect(d.morningAdj2[0].amount).toBe('50')
+    expect(d.morningAdjAmount).toBe('50')
     const res = recordFromDraft({ ...d, morningFutures: '70600' }, rec1005, [rec1005])
     expect(res.ok).toBe(true)
     if (res.ok) {
@@ -122,8 +139,8 @@ describe('結果の入力', () => {
 
 describe('入力の補助', () => {
   it('入力中の予想値', () => {
-    expect(previewPrediction('70050', '0', [{ id: 'a', kind: 'ドル円', amount: '50', note: '' }])).toBe(70100)
-    expect(previewPrediction('', '0', [])).toBeNull()
+    expect(previewPrediction('70050', '0', '50')).toBe(70100)
+    expect(previewPrediction('', '0', '')).toBeNull()
   })
   it('全角数字やマイナス記号を読める', () => {
     expect(parseNumber('７０，０５０')).toBe(70050)
@@ -156,7 +173,7 @@ describe('tonightDraft（投票区分を自動で決める）', () => {
     expect(draft.id).toBe('n')
     expect(draft.voteType).toBe('morning')
     expect(draft.morningFutures).toBe('')
-    expect(draft.morningAdj2[0].amount).toBe('50')
+    expect(draft.morningAdjAmount).toBe('50')
   })
   it('対象日の朝でも記録がなければ夜の新しい予想', () => {
     const { draft } = tonightDraft([], new Date(2026, 9, 7, 7, 30))

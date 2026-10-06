@@ -15,7 +15,7 @@ const morningRec: PredictionRecord = {
 
 describe('computeStats', () => {
   it('最初の2件', () => {
-    const s = computeStats([rec1002, rec1005], ['ドル円', 'その他'])
+    const s = computeStats([rec1002, rec1005])
     expect(s.final.n).toBe(2)
     expect(s.final.meanAbs).toBe(437.26) // (290.54 + 583.98) / 2
     expect(s.final.within100Rate).toBe(0)
@@ -23,8 +23,10 @@ describe('computeStats', () => {
     expect(s.finalMorning.n).toBe(0)
     expect(s.correctionEffect).toEqual({ n: 1, mean: 50 })
     expect(s.futuresOnlyBias).toEqual({ n: 1, mean: 633.98 })
-    expect(s.byKind.find((k) => k.kind === 'ドル円')).toEqual({ kind: 'ドル円', n: 1, meanEffect: 50, shrinkRate: 1 })
-    expect(s.byKind.find((k) => k.kind === 'その他')?.n).toBe(0)
+    expect(s.adjusted).toEqual({ n: 1, meanEffect: 50, shrinkRate: 1 })
+    expect(s.biasByUsdjpy.up).toEqual({ n: 1, mean: 633.98 }) // 10/05 はドル円 +0.26%
+    expect(s.biasByUsdjpy.down).toEqual({ n: 0, mean: null })
+    expect(s.biasByDow.up.n).toBe(0) // ダウの記録なし
     expect(s.overnightAbs.n).toBe(0)
   })
 
@@ -39,6 +41,20 @@ describe('computeStats', () => {
   })
 })
 
+it('ドル円・ダウの前日比のプラスとマイナスで分ける', () => {
+  const r = (id: string, date: string, close: number, usdjpyPct?: number, dowPct?: number) =>
+    ({ ...rec1005, id, targetDate: date, futuresAtVote: 70000, adj2: [], close, usdjpyPct, dowPct })
+  const s = computeStats([
+    r('a', '2026-10-06', 70100, 0.3, -0.5), // 先物のみの誤差 +100
+    r('b', '2026-10-07', 70300, 0.1, 0.2), // +300
+    r('c', '2026-10-08', 69800, -0.2, -1), // -200
+    r('d', '2026-10-09', 70000, 0, undefined), // 0%は数えない
+  ])
+  expect(s.biasByUsdjpy).toEqual({ up: { n: 2, mean: 200 }, down: { n: 1, mean: -200 } })
+  expect(s.biasByDow).toEqual({ up: { n: 1, mean: 300 }, down: { n: 2, mean: -50 } })
+  expect(s.adjusted.n).toBe(0) // 補正した日はない
+})
+
 describe('buildTsv', () => {
   it('指定の列順で、古い順に並ぶ', () => {
     const lines = buildTsv([rec1005, rec1002]).split('\n')
@@ -49,7 +65,7 @@ describe('buildTsv', () => {
     expect(row).toHaveLength(TSV_COLUMNS.length)
     expect(col('日付（対象日）')).toBe('2026/10/05')
     expect(col('予想値')).toBe('70100')
-    expect(col('補正②の理由')).toBe('ドル円 +50：テスト用のメモ')
+    expect(col('補正②の理由')).toBe('ドル円：テスト用のメモ')
     expect(col('予想誤差')).toBe('583.98')
     expect(col('補正の効果')).toBe('50')
     expect(col('順位')).toBe('2/10')

@@ -1,17 +1,10 @@
 // 画面の入力（文字列）と保存する記録とを相互に変換する。入力のチェックもここで行う。
-import type { Adjustment, PredictionRecord, Settings, VoteType } from '../types'
+import type { Adjustment, PredictionRecord, VoteType } from '../types'
 import { EVENT_NONE } from '../types'
-import { defaultAdj1, round2, type Adj1Default } from '../calc/calc'
+import { defaultAdj1, mergeAdjustments, round2, type Adj1Default } from '../calc/calc'
 import { defaultTargetDate, isAfterClose, toISODate } from '../calc/dates'
 import { newId } from '../id'
 import { numToInput, parseNumber } from './parse'
-
-export interface AdjustmentDraft {
-  id: string
-  kind: string
-  amount: string
-  note: string
-}
 
 export interface PredictionDraft {
   id?: string // 保存済みの記録を編集しているとき
@@ -21,23 +14,25 @@ export interface PredictionDraft {
   dow: string
   nasdaq: string
   usdjpy: string
-  adj1: string
-  adj2: AdjustmentDraft[]
+  adj1: string // 先物と日経平均の差（旧補正①）
+  adjAmount: string // 補正（旧補正②）。1件だけ
+  adjNote: string
   events: string[]
   voteType: VoteType
   morningFutures: string
   morningTime: string
   morningAdj1: string
-  morningAdj2: AdjustmentDraft[]
+  morningAdjAmount: string
+  morningAdjNote: string
 }
 
-// エラーは入力欄ごとのキーで持つ。補正②は `${下書きのid}.note` のような形。
+// エラーは入力欄ごとのキーで持つ（futures、adjNote など）
 export type DraftErrors = Record<string, string>
 
-const adjToDraft = (a: Adjustment): AdjustmentDraft => ({ ...a, amount: numToInput(a.amount) })
-
-export function newAdjustmentDraft(settings: Settings): AdjustmentDraft {
-  return { id: newId(), kind: settings.adjustmentKinds[0] ?? 'その他', amount: '', note: '' }
+// 補正の配列を、1件の入力欄（金額とメモ）に直す
+function adjToInputs(adj: Adjustment[]): { amount: string; note: string } {
+  const m = mergeAdjustments(adj)
+  return { amount: m.amount === 0 ? '' : String(m.amount), note: m.note }
 }
 
 export function newDraft(
@@ -56,18 +51,22 @@ export function newDraft(
       nasdaq: '',
       usdjpy: '',
       adj1: String(adj1Default.value),
-      adj2: [],
+      adjAmount: '',
+      adjNote: '',
       events: [],
       voteType: 'night',
       morningFutures: '',
       morningTime: '',
       morningAdj1: '',
-      morningAdj2: [],
+      morningAdjAmount: '',
+      morningAdjNote: '',
     },
   }
 }
 
 export function draftFromRecord(r: PredictionRecord): PredictionDraft {
+  const night = adjToInputs(r.adj2)
+  const morning = adjToInputs(r.morning?.adj2 ?? [])
   return {
     id: r.id,
     targetDate: r.targetDate,
@@ -77,13 +76,15 @@ export function draftFromRecord(r: PredictionRecord): PredictionDraft {
     nasdaq: numToInput(r.nasdaqPct),
     usdjpy: numToInput(r.usdjpyPct),
     adj1: numToInput(r.adj1),
-    adj2: r.adj2.map(adjToDraft),
+    adjAmount: night.amount,
+    adjNote: night.note,
     events: [...r.eventsAfterSleep],
     voteType: r.morning ? 'morning' : 'night',
     morningFutures: numToInput(r.morning?.futures),
     morningTime: r.morning?.time ?? '',
     morningAdj1: numToInput(r.morning?.adj1),
-    morningAdj2: r.morning?.adj2.map(adjToDraft) ?? [],
+    morningAdjAmount: morning.amount,
+    morningAdjNote: morning.note,
   }
 }
 
@@ -95,7 +96,8 @@ export function startMorningFix(d: PredictionDraft, now: Date): PredictionDraft 
     voteType: 'morning',
     morningTime: now.toISOString(),
     morningAdj1: d.adj1,
-    morningAdj2: d.adj2.map((a) => ({ ...a, id: newId() })),
+    morningAdjAmount: d.adjAmount,
+    morningAdjNote: d.adjNote,
   }
 }
 
@@ -123,27 +125,43 @@ export function toggleEvent(events: string[], e: string): string[] {
 }
 
 // 入力中の予想値。必要な欄が空か数字でなければ null。
-export function previewPrediction(futures: string, adj1: string, adj2: AdjustmentDraft[]): number | null {
+export function previewPrediction(futures: string, adj1: string, adjAmount: string): number | null {
   const f = parseNumber(futures)
   const a1 = parseNumber(adj1) ?? 0
-  const amounts = adj2.map((a) => parseNumber(a.amount) ?? 0)
-  if (f == null || [f, a1, ...amounts].some(Number.isNaN)) return null
-  return round2(f + a1 + amounts.reduce((s, x) => s + x, 0))
+  const a2 = parseNumber(adjAmount) ?? 0
+  if (f == null || [f, a1, a2].some(Number.isNaN)) return null
+  return round2(f + a1 + a2)
 }
 
-export function previewAdj2Sum(adj2: AdjustmentDraft[]): number | null {
-  const amounts = adj2.map((a) => parseNumber(a.amount) ?? 0)
-  return amounts.some(Number.isNaN) ? null : round2(amounts.reduce((s, x) => s + x, 0))
+// 補正の金額が0以外か（メモ欄を出すかどうか）
+export function hasAdjustment(adjAmount: string): boolean {
+  const v = parseNumber(adjAmount)
+  return v != null && !Number.isNaN(v) && v !== 0
 }
 
-function readAdjustments(list: AdjustmentDraft[], errors: DraftErrors): Adjustment[] {
-  return list.map((a) => {
-    const amount = parseNumber(a.amount) ?? 0
-    if (Number.isNaN(amount)) errors[`${a.id}.amount`] = '金額を数字で入力してください'
-    else if (amount !== 0 && a.note.trim() === '')
-      errors[`${a.id}.note`] = '金額が0以外のときは根拠を入力してください'
-    return { id: a.id, kind: a.kind, amount: Number.isNaN(amount) ? 0 : amount, note: a.note.trim() }
-  })
+// 補正の入力欄を配列に直す。中身が保存済みのものと同じなら、保存済みの配列をそのまま返す
+// （複数件ある古い記録は、編集しない限り元の形で残す）。
+function readAdjustment(
+  amountStr: string,
+  noteStr: string,
+  key: 'adj' | 'morningAdj',
+  saved: Adjustment[],
+  errors: DraftErrors,
+): Adjustment[] {
+  const parsed = parseNumber(amountStr) ?? 0
+  if (Number.isNaN(parsed)) {
+    errors[`${key}Amount`] = '補正の金額を数字で入力してください'
+    return []
+  }
+  const note = parsed === 0 ? '' : noteStr.trim()
+  if (parsed !== 0 && note === '') {
+    errors[`${key}Note`] = '補正が0以外のときはメモを入力してください'
+    return []
+  }
+  const m = mergeAdjustments(saved)
+  if (m.amount === parsed && (parsed === 0 || m.note === note)) return saved
+  if (parsed === 0) return []
+  return [{ id: newId(), kind: '', amount: parsed, note }]
 }
 
 function readNumber(
@@ -185,13 +203,13 @@ export function recordFromDraft(
   const nasdaqPct = readNumber(d.nasdaq, 'nasdaq', 'ナスダック', errors)
   const usdjpyPct = readNumber(d.usdjpy, 'usdjpy', 'ドル円', errors)
   const adj1 = readNumber(d.adj1, 'adj1', '補正①', errors) ?? 0
-  const adj2 = readAdjustments(d.adj2, errors)
+  const adj2 = readAdjustment(d.adjAmount, d.adjNote, 'adj', base?.adj2 ?? [], errors)
 
   let morning: PredictionRecord['morning']
   if (d.voteType === 'morning') {
     const futures = readNumber(d.morningFutures, 'morningFutures', '先物（修正時）', errors, true)
     const mAdj1 = readNumber(d.morningAdj1, 'morningAdj1', '補正①', errors) ?? 0
-    const mAdj2 = readAdjustments(d.morningAdj2, errors)
+    const mAdj2 = readAdjustment(d.morningAdjAmount, d.morningAdjNote, 'morningAdj', base?.morning?.adj2 ?? [], errors)
     if (futures != null)
       morning = { futures, time: d.morningTime || new Date().toISOString(), adj1: mAdj1, adj2: mAdj2 }
   }

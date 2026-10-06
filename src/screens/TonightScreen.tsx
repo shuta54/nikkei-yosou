@@ -3,7 +3,6 @@ import { formatDateJa, formatTime, isAfterClose, toISODate } from '../calc/dates
 import {
   draftFromRecord,
   newDraft,
-  previewAdj2Sum,
   tonightDraft,
   previewPrediction,
   recordFromDraft,
@@ -14,7 +13,7 @@ import {
 } from '../form/draft'
 import type { PredictionRecord, Settings } from '../types'
 import { EVENT_KINDS } from '../types'
-import { AdjustmentsEditor } from '../ui/AdjustmentsEditor'
+import { AdjustmentField } from '../ui/AdjustmentField'
 import { AmountField } from '../ui/AmountField'
 import { NumberField } from '../ui/NumberField'
 import { fmt, fmtSigned, scrollToFirstError } from '../ui/format'
@@ -40,7 +39,7 @@ interface Props {
 
 const ADJ1_SOURCE_HINT = {
   suggestion: '前回の「終値 − 終値が出た頃の先物」から',
-  previous: '前回の補正①を引き継いでいます',
+  previous: '前回の値を引き継いでいます',
   none: '',
 }
 
@@ -118,8 +117,8 @@ export function TonightScreen({ records, settings, editId, onSave, onOpenResult 
     .filter((r) => missingResults(r).length > 0 && (r.targetDate < today || (r.targetDate === today && isAfterClose(now))))
     .sort((a, b) => a.targetDate.localeCompare(b.targetDate))
 
-  const nightPreview = base?.directPrediction != null && draft.futures === '' ? base.directPrediction : previewPrediction(draft.futures, draft.adj1, draft.adj2)
-  const morningPreview = previewPrediction(draft.morningFutures, draft.morningAdj1, draft.morningAdj2)
+  const nightPreview = base?.directPrediction != null && draft.futures === '' ? base.directPrediction : previewPrediction(draft.futures, draft.adj1, draft.adjAmount)
+  const morningPreview = previewPrediction(draft.morningFutures, draft.morningAdj1, draft.morningAdjAmount)
   const finalPreview = isMorning ? morningPreview : nightPreview
 
   const changeTargetDate = (date: string) => {
@@ -135,7 +134,7 @@ export function TonightScreen({ records, settings, editId, onSave, onOpenResult 
     const { draft: fresh, adj1Default } = newDraft(new Date(), records, date)
     setAdj1Hint(ADJ1_SOURCE_HINT[adj1Default.source])
     // 保存済みの記録を表示していたなら、その日の新しい予想を始める。
-    // 保存前の入力なら、入力済みの欄は残して補正①の初期値だけ取り直す。
+    // 保存前の入力なら、入力済みの欄は残して「先物と日経平均の差」の初期値だけ取り直す。
     setDraft(draft.id ? fresh : { ...draft, targetDate: date, adj1: fresh.adj1 })
   }
 
@@ -150,8 +149,9 @@ export function TonightScreen({ records, settings, editId, onSave, onOpenResult 
     if (!res.ok) {
       setErrors(res.errors)
       // 「詳細」の中の欄に誤りがあれば開いて見せる
-      const visible = new Set(['futures', 'morningFutures', ...(isMorning ? draft.morningAdj2 : draft.adj2).flatMap((a) => [`${a.id}.note`, `${a.id}.amount`])])
-      if (isMorning) visible.delete('futures')
+      const visible = new Set(isMorning
+        ? ['morningFutures', 'morningAdjAmount', 'morningAdjNote', 'dow', 'usdjpy']
+        : ['futures', 'adjAmount', 'adjNote', 'dow', 'usdjpy'])
       if (Object.keys(res.errors).some((k) => !visible.has(k) && k !== 'targetDate')) setShowDetails(true)
       if (res.errors.targetDate) setShowDate(true)
       scrollToFirstError()
@@ -171,15 +171,12 @@ export function TonightScreen({ records, settings, editId, onSave, onOpenResult 
 
   if (saved) return <SavedPanel record={saved} voteUrl={settings.links.vote} onBack={() => setSaved(null)} />
 
-  const adj2Editor = isMorning ? (
-    <AdjustmentsEditor items={draft.morningAdj2} onChange={(morningAdj2) => set({ morningAdj2 })} settings={settings} errors={errors} />
-  ) : (
-    <AdjustmentsEditor items={draft.adj2} onChange={(adj2) => set({ adj2 })} settings={settings} errors={errors} />
-  )
   const adj1 = isMorning ? draft.morningAdj1 : draft.adj1
-  const adj1Parsed = parseNumber(adj1) ?? 0
-  const adj1Value = Number.isNaN(adj1Parsed) ? null : adj1Parsed
-  const adj2Sum = previewAdj2Sum(isMorning ? draft.morningAdj2 : draft.adj2)
+  const adjAmount = isMorning ? draft.morningAdjAmount : draft.adjAmount
+  const numOrNull = (v: string) => {
+    const x = parseNumber(v) ?? 0
+    return Number.isNaN(x) ? null : x
+  }
   const status = isMorning ? '朝に修正' : base ? '保存済みの予想を編集' : ''
 
   return (
@@ -241,20 +238,37 @@ export function TonightScreen({ records, settings, editId, onSave, onOpenResult 
         />
       )}
 
-      {adj2Editor}
+      <NumberField label="ドル円の前日比（任意）" value={draft.usdjpy} onChange={(v) => set({ usdjpy: v })} error={errors.usdjpy} signed suffix="%" link={settings.links.usdjpy} />
+      <NumberField label="ダウの前日比（任意）" value={draft.dow} onChange={(v) => set({ dow: v })} error={errors.dow} signed suffix="%" link={settings.links.dow} />
+
+      {isMorning ? (
+        <AdjustmentField
+          amount={draft.morningAdjAmount}
+          note={draft.morningAdjNote}
+          onChange={(p) => set({ ...(p.amount != null && { morningAdjAmount: p.amount }), ...(p.note != null && { morningAdjNote: p.note }) })}
+          amountError={errors.morningAdjAmount}
+          noteError={errors.morningAdjNote}
+        />
+      ) : (
+        <AdjustmentField
+          amount={draft.adjAmount}
+          note={draft.adjNote}
+          onChange={(p) => set({ ...(p.amount != null && { adjAmount: p.amount }), ...(p.note != null && { adjNote: p.note }) })}
+          amountError={errors.adjAmount}
+          noteError={errors.adjNote}
+        />
+      )}
 
       <details className="box" open={showDetails} onToggle={(e) => setShowDetails(e.currentTarget.open)}>
-        <summary>詳細（補正①・前日比・寝た後の予定）</summary>
+        <summary>詳細（先物と日経平均の差・ナスダック・寝た後の予定）</summary>
 
         {isMorning ? (
-          <AmountField label="補正①（先物と日経平均の値の差）" value={draft.morningAdj1} onChange={(v) => set({ morningAdj1: v })} error={errors.morningAdj1} />
+          <AmountField label="先物と日経平均の差" value={draft.morningAdj1} onChange={(v) => set({ morningAdj1: v })} error={errors.morningAdj1} />
         ) : (
-          <AmountField label="補正①（先物と日経平均の値の差）" value={draft.adj1} onChange={(v) => set({ adj1: v })} error={errors.adj1} hint={adj1Hint} />
+          <AmountField label="先物と日経平均の差" value={draft.adj1} onChange={(v) => set({ adj1: v })} error={errors.adj1} hint={adj1Hint} />
         )}
 
-        <NumberField label="ダウ（前日比）" value={draft.dow} onChange={(v) => set({ dow: v })} error={errors.dow} signed suffix="%" link={settings.links.dow} />
-        <NumberField label="ナスダック（前日比）" value={draft.nasdaq} onChange={(v) => set({ nasdaq: v })} error={errors.nasdaq} signed suffix="%" link={settings.links.nasdaq} />
-        <NumberField label="ドル円（前日比）" value={draft.usdjpy} onChange={(v) => set({ usdjpy: v })} error={errors.usdjpy} signed suffix="%" link={settings.links.usdjpy} />
+        <NumberField label="ナスダックの前日比" value={draft.nasdaq} onChange={(v) => set({ nasdaq: v })} error={errors.nasdaq} signed suffix="%" link={settings.links.nasdaq} />
 
         <div className="field">
           <label>寝た後の予定（複数選択可）</label>
@@ -271,9 +285,14 @@ export function TonightScreen({ records, settings, editId, onSave, onOpenResult 
           <div className="sub-box">
             <div className="section-label">夜の予想 {fmt(nightPreview)}</div>
             <NumberField label="先物（投票時）" value={draft.futures} onChange={(v) => set({ futures: v })} error={errors.futures} suffix="円" placeholder={base?.directPrediction != null ? '記録なし' : undefined} />
-            <AmountField label="補正①" value={draft.adj1} onChange={(v) => set({ adj1: v })} error={errors.adj1} />
-            <div className="section-label">補正②</div>
-            <AdjustmentsEditor items={draft.adj2} onChange={(adj2) => set({ adj2 })} settings={settings} errors={errors} />
+            <AmountField label="先物と日経平均の差" value={draft.adj1} onChange={(v) => set({ adj1: v })} error={errors.adj1} />
+            <AdjustmentField
+              amount={draft.adjAmount}
+              note={draft.adjNote}
+              onChange={(p) => set({ ...(p.amount != null && { adjAmount: p.amount }), ...(p.note != null && { adjNote: p.note }) })}
+              amountError={errors.adjAmount}
+              noteError={errors.adjNote}
+            />
           </div>
         )}
 
@@ -299,7 +318,7 @@ export function TonightScreen({ records, settings, editId, onSave, onOpenResult 
           <div className="preview-label">{isMorning ? '予想値（朝に修正）' : '予想値'}</div>
           <div className="preview-value">{fmt(finalPreview)}</div>
           <div className="preview-sub">
-            補正① {fmtSigned(adj1Value)}・補正② {fmtSigned(adj2Sum)}
+            先物と日経平均の差 {fmtSigned(numOrNull(adj1))}・補正 {fmtSigned(numOrNull(adjAmount))}
             {isMorning && `・夜 ${fmt(nightPreview)}`}
           </div>
         </div>

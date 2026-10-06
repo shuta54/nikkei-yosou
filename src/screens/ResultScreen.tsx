@@ -101,7 +101,7 @@ export function ResultScreen({ record, links, onSave, onBack }: Props) {
           onChange={(v) => set({ futuresAtClose: v })}
           error={errors.futuresAtClose}
           link={links.futures}
-          hint={c.adj1Suggestion != null ? `次回の補正①の初期値：${fmtSigned(Math.round(c.adj1Suggestion))}（終値 − この値 ＝ ${fmtSigned(c.adj1Suggestion)}）` : undefined}
+          hint={c.adj1Suggestion != null ? `次回の「先物と日経平均の差」の初期値：${fmtSigned(Math.round(c.adj1Suggestion))}（終値 − この値 ＝ ${fmtSigned(c.adj1Suggestion)}）` : undefined}
           suffix="円"
         />
         <div className="field">

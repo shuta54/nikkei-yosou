@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compute, defaultAdj1, missingResults } from '../src/calc/calc'
+import { compute, defaultAdj1, mergeAdjustments, missingResults } from '../src/calc/calc'
 import type { PredictionRecord } from '../src/types'
 import { rec1002, rec1005 } from './fixtures'
 
@@ -10,7 +10,7 @@ describe('compute', () => {
     expect(c.error).toBe(583.98)
     expect(c.futuresOnlyError).toBe(633.98)
     expect(c.correctionEffect).toBe(50)
-    expect(c.adjustmentEffects[0].effect).toBe(50)
+    expect(c.adjustmentEffect).toBe(50)
     expect(c.voteType).toBe('night')
   })
 
@@ -30,7 +30,7 @@ describe('compute', () => {
     expect(c.overnightMove).toBeNull()
     expect(c.openingGap).toBeNull()
     expect(c.intradayMove).toBeNull()
-    expect(c.adjustmentEffects[0].effect).toBeNull()
+    expect(c.adjustmentEffect).toBeNull()
     expect(c.adj1Suggestion).toBeNull()
   })
 
@@ -51,10 +51,10 @@ describe('compute', () => {
     expect(c.error).toBe(-100)
     expect(c.futuresOnlyError).toBe(-50)
     expect(c.correctionEffect).toBe(-50)
-    expect(c.adjustmentEffects[0].effect).toBe(-50)
+    expect(c.adjustmentEffect).toBe(-50)
   })
 
-  it('補正②が複数あるとき、1件ずつ外した場合の効果を出す', () => {
+  it('補正が複数ある古い記録は、合計額を外した場合と比べる', () => {
     const r: PredictionRecord = {
       ...rec1005,
       close: 70100,
@@ -66,7 +66,8 @@ describe('compute', () => {
     const c = compute(r) // 予想値 70110、誤差 -10
     expect(c.prediction).toBe(70110)
     expect(c.error).toBe(-10)
-    expect(c.adjustmentEffects.map((e) => e.effect)).toEqual([80, 40]) // 外すと誤差は 90 と -50
+    expect(c.adj2Sum).toBe(60)
+    expect(c.adjustmentEffect).toBe(40) // 外すと誤差は 50
   })
 
   it('朝に修正した日は朝の先物で予想値を出し、夜の予想値と誤差も残す', () => {
@@ -111,5 +112,24 @@ describe('missingResults', () => {
     expect(missingResults({ ...rec1005, close: undefined, rank: undefined })).toEqual(['終値', '順位'])
     expect(missingResults({ ...rec1005, rank: undefined })).toEqual(['順位'])
     expect(missingResults(rec1005)).toEqual([])
+  })
+})
+
+describe('mergeAdjustments（古い記録の補正を1件にまとめる）', () => {
+  it('1件なら理由の種類をメモの先頭に付ける', () => {
+    expect(mergeAdjustments(rec1005.adj2)).toEqual({ amount: 50, note: 'ドル円：テスト用のメモ' })
+  })
+  it('複数なら金額を合計し、種類と金額を付けてメモをつなげる', () => {
+    const m = mergeAdjustments([
+      { id: 'a', kind: 'ドル円', amount: 100, note: 'a' },
+      { id: 'b', kind: '直近の傾向', amount: -40, note: 'b' },
+    ])
+    expect(m).toEqual({ amount: 60, note: 'ドル円 +100：a / 直近の傾向 -40：b' })
+  })
+  it('新しい形（種類なし）の補正はメモだけ', () => {
+    expect(mergeAdjustments([{ id: 'x', kind: '', amount: -30, note: 'メモ' }])).toEqual({ amount: -30, note: 'メモ' })
+  })
+  it('補正なし', () => {
+    expect(mergeAdjustments([])).toEqual({ amount: 0, note: '' })
   })
 })

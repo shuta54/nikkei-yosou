@@ -14,11 +14,16 @@ export interface MeanSummary {
   mean: number | null
 }
 
-export interface KindStat {
-  kind: string
-  n: number // 結果が出ている補正の回数
-  meanEffect: number | null
+export interface AdjustedStat {
+  n: number // 補正した日のうち結果が出ている日数
+  meanEffect: number | null // 補正の効果の平均
   shrinkRate: number | null // 誤差を縮めた回数の割合（0〜1）
+}
+
+// 前日比がプラスの日とマイナスの日に分けた、先物のみの誤差の符号つき平均
+export interface SplitBias {
+  up: MeanSummary
+  down: MeanSummary
 }
 
 export interface Stats {
@@ -28,8 +33,10 @@ export interface Stats {
   nightPrediction: ErrorSummary // 夜の予想（全記録。朝に修正した日も夜の予想値で計算）
   morningImprovement: MeanSummary // 朝の修正で縮まった額
   correctionEffect: MeanSummary
-  byKind: KindStat[]
+  adjusted: AdjustedStat
   futuresOnlyBias: MeanSummary // 先物のみの誤差の符号つき平均
+  biasByUsdjpy: SplitBias
+  biasByDow: SplitBias
   overnightAbs: MeanSummary
   openingGapAbs: MeanSummary
   intradayAbs: MeanSummary
@@ -52,26 +59,15 @@ export function summarizeErrors(errors: (number | null)[]): ErrorSummary {
   }
 }
 
-export function computeStats(records: PredictionRecord[], kinds: string[] = []): Stats {
-  const cs = records.map(compute)
+function splitBias(records: PredictionRecord[], pct: (r: PredictionRecord) => number | undefined): SplitBias {
+  const pick = (cond: (x: number) => boolean) =>
+    mean(nonNull(records.filter((r) => pct(r) != null && cond(pct(r)!)).map((r) => compute(r).futuresOnlyError)))
+  return { up: pick((x) => x > 0), down: pick((x) => x < 0) }
+}
 
-  const byKindMap = new Map<string, number[]>()
-  for (const k of kinds) byKindMap.set(k, [])
-  for (const c of cs) {
-    for (const { adjustment, effect } of c.adjustmentEffects) {
-      // 金額0の補正は効果も0になるので数えない
-      if (effect == null || adjustment.amount === 0) continue
-      const list = byKindMap.get(adjustment.kind) ?? []
-      list.push(effect)
-      byKindMap.set(adjustment.kind, list)
-    }
-  }
-  const byKind: KindStat[] = [...byKindMap].map(([kind, effects]) => ({
-    kind,
-    n: effects.length,
-    meanEffect: mean(effects).mean,
-    shrinkRate: effects.length ? effects.filter((e) => e > 0).length / effects.length : null,
-  }))
+export function computeStats(records: PredictionRecord[]): Stats {
+  const cs = records.map(compute)
+  const effects = nonNull(cs.map((c) => c.adjustmentEffect))
 
   return {
     final: summarizeErrors(cs.map((c) => c.error)),
@@ -80,8 +76,14 @@ export function computeStats(records: PredictionRecord[], kinds: string[] = []):
     nightPrediction: summarizeErrors(cs.map((c) => c.nightError)),
     morningImprovement: mean(nonNull(cs.map((c) => c.morningImprovement))),
     correctionEffect: mean(nonNull(cs.map((c) => c.correctionEffect))),
-    byKind,
+    adjusted: {
+      n: effects.length,
+      meanEffect: mean(effects).mean,
+      shrinkRate: effects.length ? effects.filter((e) => e > 0).length / effects.length : null,
+    },
     futuresOnlyBias: mean(nonNull(cs.map((c) => c.futuresOnlyError))),
+    biasByUsdjpy: splitBias(records, (r) => r.usdjpyPct),
+    biasByDow: splitBias(records, (r) => r.dowPct),
     overnightAbs: mean(nonNull(cs.map((c) => c.overnightMove)).map(Math.abs)),
     openingGapAbs: mean(nonNull(cs.map((c) => c.openingGap)).map(Math.abs)),
     intradayAbs: mean(nonNull(cs.map((c) => c.intradayMove)).map(Math.abs)),

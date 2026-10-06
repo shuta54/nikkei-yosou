@@ -32,7 +32,7 @@ function parseAdjustments(x: unknown, where: string): Adjustment[] {
     if (!isObj(a) || typeof a.amount !== 'number') throw new ImportError(`${where}の補正②の形が正しくありません`)
     return {
       id: typeof a.id === 'string' ? a.id : newId(),
-      kind: typeof a.kind === 'string' ? a.kind : 'その他',
+      kind: typeof a.kind === 'string' ? a.kind : '',
       amount: a.amount,
       note: typeof a.note === 'string' ? a.note : '',
     }

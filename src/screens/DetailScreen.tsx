@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { compute, finalInputs, missingResults } from '../calc/calc'
+import { compute, finalInputs, mergeAdjustments, missingResults } from '../calc/calc'
 import { formatDateJa, formatDateTime } from '../calc/dates'
 import type { Adjustment, PredictionRecord } from '../types'
 import { VOTE_TYPE_LABEL } from '../types'
@@ -16,23 +16,10 @@ interface Props {
 
 const pct = (x: number | undefined) => (x == null ? EMPTY : `${fmtSigned(x)}%`)
 
-function AdjList({ items, effects }: { items: Adjustment[]; effects?: (number | null)[] }) {
-  if (!items.length) return <p className="muted small">補正②はありません</p>
-  return (
-    <ul className="adj-list">
-      {items.map((a, i) => (
-        <li key={a.id}>
-          <div className="row">
-            <span>
-              <span className="tag">{a.kind}</span> {fmtSigned(a.amount)}円
-            </span>
-            {effects && <span className="num">効果 {fmtSigned(effects[i])}</span>}
-          </div>
-          {a.note && <p className="note">{a.note}</p>}
-        </li>
-      ))}
-    </ul>
-  )
+function AdjNote({ items }: { items: Adjustment[] }) {
+  const m = mergeAdjustments(items)
+  if (m.amount === 0 && !m.note) return null
+  return <p className="note adj-note">{m.note || EMPTY}</p>
 }
 
 export function DetailScreen({ record: r, onBack, onEditPrediction, onEditResult, onDelete }: Props) {
@@ -62,6 +49,7 @@ export function DetailScreen({ record: r, onBack, onEditPrediction, onEditResult
         <Row label="予想誤差" value={fmtSigned(c.error)} strong />
         <Row label="先物のみの誤差" value={fmtSigned(c.futuresOnlyError)} />
         <Row label="補正の効果" value={fmtSigned(c.correctionEffect)} />
+        {c.adjustmentEffect != null && <Row label="うち補正だけの効果" value={fmtSigned(c.adjustmentEffect)} />}
         {c.voteType === 'morning' && (
           <>
             <Row label="夜の予想値" value={fmt(c.nightPrediction)} />
@@ -79,21 +67,22 @@ export function DetailScreen({ record: r, onBack, onEditPrediction, onEditResult
       <div className="calc-box">
         {r.directPrediction != null && r.futuresAtVote == null && <p className="muted small">この記録は先物の記録がなく、予想値だけを持っています</p>}
         <Row label={c.voteType === 'morning' ? '先物（修正時）' : '先物（投票時）'} value={fmt(fin.futures)} />
-        <Row label="補正①" value={fmtSigned(fin.adj1)} />
-        <Row label="補正②の合計" value={fmtSigned(c.adj2Sum)} />
+        <Row label="先物と日経平均の差" value={fmtSigned(fin.adj1)} />
+        <Row label="補正" value={fmtSigned(c.adj2Sum)} />
         <Row label="投票時刻" value={r.morning ? formatDateTime(r.morning.time) : r.voteTime ? formatDateTime(r.voteTime) : EMPTY} />
       </div>
-      <AdjList items={fin.adj2} effects={c.adjustmentEffects.map((e) => e.effect)} />
+      <AdjNote items={fin.adj2} />
 
       {r.morning && (
         <>
           <h2>夜の予想</h2>
           <div className="calc-box">
             <Row label="先物（投票時）" value={fmt(r.futuresAtVote)} />
-            <Row label="補正①" value={fmtSigned(r.adj1)} />
+            <Row label="先物と日経平均の差" value={fmtSigned(r.adj1)} />
+            <Row label="補正" value={fmtSigned(mergeAdjustments(r.adj2).amount)} />
             <Row label="投票時刻" value={r.voteTime ? formatDateTime(r.voteTime) : EMPTY} />
           </div>
-          <AdjList items={r.adj2} />
+          <AdjNote items={r.adj2} />
         </>
       )}
 

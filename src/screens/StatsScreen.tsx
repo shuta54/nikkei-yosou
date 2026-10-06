@@ -1,4 +1,4 @@
-import { computeStats, FEW_RECORDS_THRESHOLD, type ErrorSummary, type MeanSummary } from '../calc/stats'
+import { computeStats, FEW_RECORDS_THRESHOLD, type ErrorSummary, type MeanSummary, type SplitBias } from '../calc/stats'
 import type { PredictionRecord, Settings } from '../types'
 import { fmt, fmtPct, fmtSigned } from '../ui/format'
 import { Row } from './ResultScreen'
@@ -45,8 +45,28 @@ function MeanCard({ title, s, label, note, signed = true }: { title: string; s: 
   )
 }
 
+// 前日比がプラスの日とマイナスの日で、先物のみの誤差の符号つき平均を比べる
+function BiasCard({ title, label, s }: { title: string; label: string; s: SplitBias }) {
+  const rows = [
+    { name: `${label}がプラスの日`, m: s.up },
+    { name: `${label}がマイナスの日`, m: s.down },
+  ]
+  return (
+    <div className="card">
+      <div className="card-head">
+        <h3>{title}</h3>
+        <Few n={Math.min(s.up.n, s.down.n)} />
+      </div>
+      <p className="muted small">終値 − 先物（投票時）の符号つき平均。プラスなら先物より終値が高くなりがち</p>
+      {rows.map((r) => (
+        <Row key={r.name} label={`${r.name}（${r.m.n}件）`} value={r.m.mean == null ? fmt(null) : `${fmtSigned(r.m.mean)}円`} strong />
+      ))}
+    </div>
+  )
+}
+
 export function StatsScreen({ records, settings, onSettingsChange, onImported }: Props) {
-  const s = computeStats(records, settings.adjustmentKinds)
+  const s = computeStats(records)
   const moves = [
     { label: '夜間の動き', s: s.overnightAbs },
     { label: '寄り付きの差', s: s.openingGapAbs },
@@ -59,34 +79,17 @@ export function StatsScreen({ records, settings, onSettingsChange, onImported }:
       <ErrorCard title="予想誤差" s={s.final} />
       <div className="card">
         <div className="card-head">
-          <h3>補正の理由ごとの効果</h3>
-          <Few n={Math.min(...s.byKind.map((k) => k.n), Infinity)} />
+          <h3>補正した日</h3>
+          <Few n={s.adjusted.n} />
         </div>
-        <table className="kinds">
-          <thead>
-            <tr>
-              <th>種類</th>
-              <th>回数</th>
-              <th>平均の効果</th>
-              <th>縮めた割合</th>
-            </tr>
-          </thead>
-          <tbody>
-            {s.byKind.map((k) => (
-              <tr key={k.kind}>
-                <td>{k.kind}</td>
-                <td className="num">{k.n}</td>
-                <td className="num">{fmtSigned(k.meanEffect)}</td>
-                <td className="num">{fmtPct(k.shrinkRate)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="muted small">結果が出ていて金額が0以外の補正だけを数えています</p>
+        <p className="muted small">補正を0以外にした日の集計。補正の効果は、補正を外した場合と比べて誤差が何円縮んだか</p>
+        <Row label="補正の効果の平均" value={s.adjusted.meanEffect == null ? fmt(null) : `${fmtSigned(s.adjusted.meanEffect)}円`} strong />
+        <Row label="誤差を縮めた回数の割合" value={fmtPct(s.adjusted.shrinkRate)} strong />
+        <Row label="回数" value={`${s.adjusted.n}回`} />
       </div>
 
       <details className="box more">
-        <summary>詳しく見る（ほかの集計・設定・データの書き出し）</summary>
+        <summary>詳しく見る（ほかの集計・設定・データ）</summary>
         <ErrorCard title="予想誤差（夜に投票した日）" s={s.finalNight} />
         <ErrorCard title="予想誤差（朝に修正した日）" s={s.finalMorning} />
         <ErrorCard title="夜の予想の誤差" s={s.nightPrediction} note="全記録が対象。朝に修正した日も夜の予想値で計算" />
@@ -96,13 +99,16 @@ export function StatsScreen({ records, settings, onSettingsChange, onImported }:
           label="平均"
           note="朝に修正した日の |夜の予想の誤差| − |朝の予想の誤差|。プラスなら修正で近づいた"
         />
-        <MeanCard title="補正の効果" s={s.correctionEffect} label="平均" note="プラスなら補正で近づいた。マイナスなら補正しないほうが近かった" />
+        <MeanCard title="補正の効果（全記録）" s={s.correctionEffect} label="平均" note="|先物のみの誤差| − |予想誤差|。先物と日経平均の差の分も含む。プラスなら先物より近づいた" />
         <MeanCard
           title="先物のみの誤差"
           s={s.futuresOnlyBias}
           label="符号つきの平均"
           note="終値 − 先物（投票時）。プラスに寄っていれば、先物より終値が高くなりがち"
         />
+
+        <BiasCard title="ドル円の前日比で分けた先物のみの誤差" label="ドル円" s={s.biasByUsdjpy} />
+        <BiasCard title="ダウの前日比で分けた先物のみの誤差" label="ダウ" s={s.biasByDow} />
 
         <div className="card">
           <div className="card-head">

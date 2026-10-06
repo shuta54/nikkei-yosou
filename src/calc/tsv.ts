@@ -1,6 +1,6 @@
 import type { PredictionRecord } from '../types'
 import { VOTE_TYPE_LABEL } from '../types'
-import { compute, finalInputs } from './calc'
+import { compute, finalInputs, mergeAdjustments } from './calc'
 import { formatDateSlash, formatDateTime } from './dates'
 
 export const TSV_COLUMNS = [
@@ -33,8 +33,6 @@ export const TSV_COLUMNS = [
 
 const num = (x: number | null | undefined): string => (x == null ? '' : String(x))
 
-export const signed = (x: number): string => (x > 0 ? `+${x}` : String(x))
-
 // タブと改行はセルの区切りになってしまうので空白に置き換える
 const text = (s: string): string => s.replace(/[\t\r\n]+/g, ' ').trim()
 
@@ -52,7 +50,7 @@ export function recordToRow(r: PredictionRecord): string[] {
     num(r.usdjpyPct),
     num(fin.adj1),
     num(c.adj2Sum),
-    fin.adj2.map((a) => `${a.kind} ${signed(a.amount)}：${a.note}`).join(' / '),
+    mergeAdjustments(fin.adj2).note,
     num(c.prediction),
     r.eventsAfterSleep.join('、'),
     num(r.futuresNextMorning),

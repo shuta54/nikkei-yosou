@@ -4,7 +4,7 @@ import { formatDateTime, toISODate } from '../calc/dates'
 import { exportAll, importAll, listRecords, loadLastExportAt } from '../storage'
 import { parseExportData, type ExportData } from '../storage/exportFormat'
 import type { Settings } from '../types'
-import { DEFAULT_ADJUSTMENT_KINDS, DEFAULT_LINKS, LINK_LABELS, type Links } from '../types'
+import { DEFAULT_LINKS, LINK_LABELS, type Links } from '../types'
 
 interface Props {
   settings: Settings
@@ -28,7 +28,6 @@ export function DataSection({ settings, recordCount, onSettingsChange, onImporte
   const [message, setMessage] = useState('')
   const [lastExport, setLastExport] = useState<string | null>(null)
   const [pendingImport, setPendingImport] = useState<{ json: unknown; data: ExportData } | null>(null)
-  const [newKind, setNewKind] = useState('')
   const [links, setLinks] = useState<Links>(settings.links)
   const linkKeys = Object.keys(LINK_LABELS) as (keyof Links)[]
   const badLink = linkKeys.find((k) => links[k] && !/^https?:\/\//.test(links[k]))
@@ -81,15 +80,6 @@ export function DataSection({ settings, recordCount, onSettingsChange, onImporte
     }
   }
 
-  const addKind = async () => {
-    const k = newKind.trim()
-    if (!k || settings.adjustmentKinds.includes(k)) return
-    await onSettingsChange({ ...settings, adjustmentKinds: [...settings.adjustmentKinds, k] })
-    setNewKind('')
-  }
-
-  const removeKind = (k: string) => onSettingsChange({ ...settings, adjustmentKinds: settings.adjustmentKinds.filter((x) => x !== k) })
-
   const saveLinks = async () => {
     if (badLink) return
     await onSettingsChange({ ...settings, links })
@@ -99,28 +89,6 @@ export function DataSection({ settings, recordCount, onSettingsChange, onImporte
   return (
     <>
       <h2 className="section-title">設定とデータ</h2>
-
-      <div className="card">
-        <h3>補正②の理由の種類</h3>
-        <div className="chips">
-          {settings.adjustmentKinds.map((k) => (
-            <span key={k} className="chip on">
-              {k}
-              {!DEFAULT_ADJUSTMENT_KINDS.includes(k) && (
-                <button type="button" className="chip-x" aria-label={`${k}を消す`} onClick={() => removeKind(k)}>
-                  ×
-                </button>
-              )}
-            </span>
-          ))}
-        </div>
-        <div className="input-row">
-          <input type="text" placeholder="追加する種類" value={newKind} onChange={(e) => setNewKind(e.target.value)} />
-          <button type="button" className="secondary" onClick={addKind}>
-            追加
-          </button>
-        </div>
-      </div>
 
       <div className="card">
         <h3>「開く」ボタンのリンク先</h3>
