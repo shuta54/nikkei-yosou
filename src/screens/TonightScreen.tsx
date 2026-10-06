@@ -3,6 +3,7 @@ import { formatDateJa, formatTime, isAfterClose, toISODate } from '../calc/dates
 import {
   draftFromRecord,
   newDraft,
+  restoreDraft,
   tonightDraft,
   previewPrediction,
   recordFromDraft,
@@ -53,14 +54,15 @@ function initialDraft(records: PredictionRecord[], editId: string | undefined, n
     fresh = { draft, adj1Hint: adj1Default ? ADJ1_SOURCE_HINT[adj1Default.source] : '' }
   }
   // 保存前の入力が残っていて、同じ記録（新規なら同じ対象日）・同じ投票区分のものなら続きから
-  const cached = loadCached<Cached>(CACHE_KEY)
+  const raw = loadCached<{ draft?: unknown; adj1Hint?: unknown }>(CACHE_KEY)
+  if (!raw?.draft) return fresh
+  const cached = restoreDraft(raw.draft, fresh.draft)
   if (
-    cached?.draft &&
-    cached.draft.id === fresh.draft.id &&
-    cached.draft.voteType === fresh.draft.voteType &&
-    (fresh.draft.id || cached.draft.targetDate === fresh.draft.targetDate)
+    cached.id === fresh.draft.id &&
+    cached.voteType === fresh.draft.voteType &&
+    (fresh.draft.id || cached.targetDate === fresh.draft.targetDate)
   )
-    return cached
+    return { draft: cached, adj1Hint: typeof raw.adj1Hint === 'string' ? raw.adj1Hint : fresh.adj1Hint }
   return fresh
 }
 

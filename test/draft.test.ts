@@ -7,6 +7,7 @@ import {
   recordFromDraft,
   resultDraftFromRecord,
   startMorningFix,
+  restoreDraft,
   toggleEvent,
   tonightDraft,
 } from '../src/form/draft'
@@ -184,5 +185,29 @@ describe('tonightDraft（投票区分を自動で決める）', () => {
     const mon = { ...night1006, targetDate: '2026-10-12' }
     const { draft } = tonightDraft([mon], new Date(2026, 9, 10, 9, 0))
     expect(draft.voteType).toBe('night')
+  })
+})
+
+describe('restoreDraft（一時保存していた入力を読む）', () => {
+  const fresh = newDraft(now, []).draft
+  it('前の版の形（補正が配列）を、補正1件の形に直す', () => {
+    const old = {
+      ...fresh,
+      futures: '70500',
+      adjAmount: undefined,
+      adjNote: undefined,
+      adj2: [
+        { id: 'a', kind: 'ドル円', amount: '50', note: 'メモ' },
+        { id: 'b', kind: 'その他', amount: '-10', note: 'x' },
+      ],
+    }
+    const d = restoreDraft(old, fresh)
+    expect(d.futures).toBe('70500')
+    expect([d.adjAmount, d.adjNote]).toEqual(['40', 'ドル円 +50：メモ / その他 -10：x'])
+    expect(d.morningAdjAmount).toBe('')
+  })
+  it('欄が足りない・壊れた中身でも止まらない', () => {
+    expect(restoreDraft({ futures: 1 }, fresh)).toEqual(fresh)
+    expect(restoreDraft('x', fresh)).toEqual(fresh)
   })
 })

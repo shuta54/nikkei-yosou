@@ -28,7 +28,13 @@ function previewRecord(r: PredictionRecord, d: ResultDraft): PredictionRecord {
 
 export function ResultScreen({ record, links, onSave, onBack }: Props) {
   const cacheKey = `nikkei-yosou:result-draft:${record.id}`
-  const [draft, setDraft] = useState<ResultDraft>(() => loadCached<ResultDraft>(cacheKey) ?? resultDraftFromRecord(record))
+  const [draft, setDraft] = useState<ResultDraft>(() => {
+    // 一時保存の中身は文字列の欄だけを使い、足りない欄は記録の値で埋める
+    const fresh = resultDraftFromRecord(record)
+    const cached = loadCached<Record<string, unknown>>(cacheKey) ?? {}
+    const picked = Object.fromEntries(Object.entries(cached).filter(([k, v]) => k in fresh && typeof v === 'string'))
+    return { ...fresh, ...picked }
+  })
   useEffect(() => saveCached(cacheKey, draft), [cacheKey, draft])
   const [errors, setErrors] = useState<DraftErrors>({})
   const [saving, setSaving] = useState(false)

@@ -19,6 +19,15 @@ export function saveCached(key: string, value: unknown): void {
   }
 }
 
+// 入力途中の内容をすべて消す（画面が開けなくなったとき用）
+export function clearAllCached(): void {
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith('nikkei-yosou:')) localStorage.removeItem(k)
+  } catch {
+    // 何もしない
+  }
+}
+
 export function clearCached(key: string): void {
   try {
     localStorage.removeItem(key)

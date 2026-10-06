@@ -117,6 +117,42 @@ export function tonightDraft(
   return { draft: morningOfTarget ? startMorningFix(draft, now) : draft, adj1Default: null }
 }
 
+// 端末に一時保存していた入力を、今の版の形に直す。
+// 前の版の形（補正が配列）でも、欄が足りない形でも読めるようにし、読めない欄は fresh の値を使う。
+export function restoreDraft(raw: unknown, fresh: PredictionDraft): PredictionDraft {
+  if (typeof raw !== 'object' || raw === null) return fresh
+  const o = raw as Record<string, unknown>
+  const out: PredictionDraft = { ...fresh }
+  const str = (k: keyof PredictionDraft) => {
+    if (typeof o[k] === 'string') (out[k] as string) = o[k] as string
+  }
+  for (const k of ['targetDate', 'voteTime', 'futures', 'dow', 'nasdaq', 'usdjpy', 'adj1', 'adjAmount', 'adjNote', 'morningFutures', 'morningTime', 'morningAdj1', 'morningAdjAmount', 'morningAdjNote'] as const) str(k)
+  if (typeof o.id === 'string') out.id = o.id
+  if (o.voteType === 'night' || o.voteType === 'morning') out.voteType = o.voteType
+  if (Array.isArray(o.events)) out.events = o.events.filter((e): e is string => typeof e === 'string')
+  // 前の版：補正②を { kind, amount（文字列）, note } の配列で持っていた
+  const fromOld = (list: unknown) => {
+    if (!Array.isArray(list)) return null
+    const adj: Adjustment[] = list
+      .filter((a): a is Record<string, unknown> => typeof a === 'object' && a !== null)
+      .map((a) => {
+        const n = parseNumber(typeof a.amount === 'string' ? a.amount : String(a.amount ?? ''))
+        return {
+          id: '',
+          kind: typeof a.kind === 'string' ? a.kind : '',
+          amount: n == null || Number.isNaN(n) ? 0 : n,
+          note: typeof a.note === 'string' ? a.note : '',
+        }
+      })
+    return adjToInputs(adj)
+  }
+  const night = typeof o.adjAmount === 'string' ? null : fromOld(o.adj2)
+  if (night) [out.adjAmount, out.adjNote] = [night.amount, night.note]
+  const morning = typeof o.morningAdjAmount === 'string' ? null : fromOld(o.morningAdj2)
+  if (morning) [out.morningAdjAmount, out.morningAdjNote] = [morning.amount, morning.note]
+  return out
+}
+
 // 「なし」と他の予定は同時に選べない
 export function toggleEvent(events: string[], e: string): string[] {
   if (events.includes(e)) return events.filter((x) => x !== e)
