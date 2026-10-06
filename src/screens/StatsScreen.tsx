@@ -56,21 +56,10 @@ export function StatsScreen({ records, settings, onSettingsChange, onImported }:
     <div className="screen">
       <h1>検証</h1>
 
-      <ErrorCard title="最終的に投票した予想の誤差" s={s.final} />
-      <ErrorCard title="同・夜に投票した日" s={s.finalNight} />
-      <ErrorCard title="同・朝に修正した日" s={s.finalMorning} />
-      <ErrorCard title="夜の予想の誤差" s={s.nightPrediction} note="全記録が対象。朝に修正した日も夜の予想値で計算" />
-      <MeanCard
-        title="朝の修正で縮まった額"
-        s={s.morningImprovement}
-        label="平均"
-        note="朝に修正した日の |夜の予想の誤差| − |朝の予想の誤差|。プラスなら修正で近づいた"
-      />
-      <MeanCard title="補正の効果" s={s.correctionEffect} label="平均" note="プラスなら補正で近づいた。マイナスなら補正しないほうが近かった" />
-
+      <ErrorCard title="予想誤差" s={s.final} />
       <div className="card">
         <div className="card-head">
-          <h3>補正②の理由の種類ごと</h3>
+          <h3>補正の理由ごとの効果</h3>
           <Few n={Math.min(...s.byKind.map((k) => k.n), Infinity)} />
         </div>
         <table className="kinds">
@@ -96,24 +85,36 @@ export function StatsScreen({ records, settings, onSettingsChange, onImported }:
         <p className="muted small">結果が出ていて金額が0以外の補正だけを数えています</p>
       </div>
 
-      <MeanCard
-        title="先物のみの誤差"
-        s={s.futuresOnlyBias}
-        label="符号つきの平均"
-        note="終値 − 先物（投票時）。プラスに寄っていれば、先物より終値が高くなりがち"
-      />
+      <details className="box more">
+        <summary>詳しく見る（ほかの集計・設定・データの書き出し）</summary>
+        <ErrorCard title="予想誤差（夜に投票した日）" s={s.finalNight} />
+        <ErrorCard title="予想誤差（朝に修正した日）" s={s.finalMorning} />
+        <ErrorCard title="夜の予想の誤差" s={s.nightPrediction} note="全記録が対象。朝に修正した日も夜の予想値で計算" />
+        <MeanCard
+          title="朝の修正で縮まった額"
+          s={s.morningImprovement}
+          label="平均"
+          note="朝に修正した日の |夜の予想の誤差| − |朝の予想の誤差|。プラスなら修正で近づいた"
+        />
+        <MeanCard title="補正の効果" s={s.correctionEffect} label="平均" note="プラスなら補正で近づいた。マイナスなら補正しないほうが近かった" />
+        <MeanCard
+          title="先物のみの誤差"
+          s={s.futuresOnlyBias}
+          label="符号つきの平均"
+          note="終値 − 先物（投票時）。プラスに寄っていれば、先物より終値が高くなりがち"
+        />
 
-      <div className="card">
-        <div className="card-head">
-          <h3>値動きの大きさ（絶対値の平均）</h3>
-          <Few n={Math.min(...moves.map((m) => m.s.n))} />
+        <div className="card">
+          <div className="card-head">
+            <h3>値動きの大きさ（絶対値の平均）</h3>
+            <Few n={Math.min(...moves.map((m) => m.s.n))} />
+          </div>
+          {moves.map((m) => (
+            <Row key={m.label} label={`${m.label}（${m.s.n}件）`} value={m.s.mean == null ? fmt(null) : `${fmt(m.s.mean)}円`} />
+          ))}
         </div>
-        {moves.map((m) => (
-          <Row key={m.label} label={`${m.label}（${m.s.n}件）`} value={m.s.mean == null ? fmt(null) : `${fmt(m.s.mean)}円`} />
-        ))}
-      </div>
-
-      <DataSection settings={settings} onSettingsChange={onSettingsChange} onImported={onImported} recordCount={records.length} />
+        <DataSection settings={settings} onSettingsChange={onSettingsChange} onImported={onImported} recordCount={records.length} />
+      </details>
     </div>
   )
 }

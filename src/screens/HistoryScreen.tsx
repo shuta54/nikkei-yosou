@@ -12,7 +12,7 @@ export function HistoryScreen({ records, onOpen }: Props) {
   return (
     <div className="screen">
       <h1>履歴</h1>
-      {records.length === 0 && <p className="muted">まだ記録がありません。検証タブの「データ」から JSON を読み込めます。</p>}
+      {records.length === 0 && <p className="muted">まだ記録がありません。検証タブの「詳しく見る」→「設定とデータ」から JSON を読み込めます。</p>}
       <ul className="history">
         {records.map((r) => {
           const c = compute(r)

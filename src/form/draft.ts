@@ -2,7 +2,7 @@
 import type { Adjustment, PredictionRecord, Settings, VoteType } from '../types'
 import { EVENT_NONE } from '../types'
 import { defaultAdj1, round2, type Adj1Default } from '../calc/calc'
-import { defaultTargetDate } from '../calc/dates'
+import { defaultTargetDate, isAfterClose, toISODate } from '../calc/dates'
 import { newId } from '../id'
 import { numToInput, parseNumber } from './parse'
 
@@ -97,6 +97,22 @@ export function startMorningFix(d: PredictionDraft, now: Date): PredictionDraft 
     morningAdj1: d.adj1,
     morningAdj2: d.adj2.map((a) => ({ ...a, id: newId() })),
   }
+}
+
+// 「今夜の予想」を開いたときの下書き。投票区分は選ばせず、ここで決める。
+// - 対象日の記録がなければ、夜の新しい予想
+// - 対象日の記録があり、当日の朝（15:30より前）に開いたなら「朝に修正」
+// - それ以外は保存済みの記録の続き（朝に修正済みならそのまま）
+export function tonightDraft(
+  records: PredictionRecord[],
+  now: Date,
+): { draft: PredictionDraft; adj1Default: Adj1Default | null } {
+  const target = defaultTargetDate(now)
+  const existing = records.find((r) => r.targetDate === target)
+  if (!existing) return newDraft(now, records, target)
+  const draft = draftFromRecord(existing)
+  const morningOfTarget = target === toISODate(now) && !isAfterClose(now)
+  return { draft: morningOfTarget ? startMorningFix(draft, now) : draft, adj1Default: null }
 }
 
 // 「なし」と他の予定は同時に選べない

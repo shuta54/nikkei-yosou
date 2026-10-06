@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { defaultTargetDate, formatDateJa, formatTime, isAfterClose, toISODate } from '../calc/dates'
+import { formatDateJa, formatTime, isAfterClose, toISODate } from '../calc/dates'
 import {
   draftFromRecord,
   newDraft,
   previewAdj2Sum,
+  tonightDraft,
   previewPrediction,
   recordFromDraft,
   startMorningFix,
@@ -17,6 +18,7 @@ import { AdjustmentsEditor } from '../ui/AdjustmentsEditor'
 import { AmountField } from '../ui/AmountField'
 import { NumberField } from '../ui/NumberField'
 import { fmt, fmtSigned, scrollToFirstError } from '../ui/format'
+import { parseNumber } from '../form/parse'
 import { clearCached, loadCached, saveCached } from '../ui/draftCache'
 import { VoteLink } from '../ui/LinkButton'
 import { finalPrediction, missingResults } from '../calc/calc'
@@ -42,19 +44,23 @@ const ADJ1_SOURCE_HINT = {
   none: '',
 }
 
-function initialDraft(records: PredictionRecord[], editId: string | undefined, now: Date) {
-  const existing = editId
-    ? records.find((r) => r.id === editId)
-    : records.find((r) => r.targetDate === defaultTargetDate(now))
-  const fresh: Cached = existing
-    ? { draft: draftFromRecord(existing), adj1Hint: '' }
-    : (() => {
-        const { draft, adj1Default } = newDraft(now, records)
-        return { draft, adj1Hint: ADJ1_SOURCE_HINT[adj1Default.source] }
-      })()
-  // 保存前の入力が残っていて、同じ記録（新規なら同じ対象日）のものなら続きから
+function initialDraft(records: PredictionRecord[], editId: string | undefined, now: Date): Cached {
+  const editing = editId ? records.find((r) => r.id === editId) : undefined
+  let fresh: Cached
+  if (editing) {
+    fresh = { draft: draftFromRecord(editing), adj1Hint: '' }
+  } else {
+    const { draft, adj1Default } = tonightDraft(records, now)
+    fresh = { draft, adj1Hint: adj1Default ? ADJ1_SOURCE_HINT[adj1Default.source] : '' }
+  }
+  // 保存前の入力が残っていて、同じ記録（新規なら同じ対象日）・同じ投票区分のものなら続きから
   const cached = loadCached<Cached>(CACHE_KEY)
-  if (cached?.draft && cached.draft.id === fresh.draft.id && (fresh.draft.id || cached.draft.targetDate === fresh.draft.targetDate))
+  if (
+    cached?.draft &&
+    cached.draft.id === fresh.draft.id &&
+    cached.draft.voteType === fresh.draft.voteType &&
+    (fresh.draft.id || cached.draft.targetDate === fresh.draft.targetDate)
+  )
     return cached
   return fresh
 }
@@ -94,7 +100,8 @@ export function TonightScreen({ records, settings, editId, onSave, onOpenResult 
   const [draft, setDraft] = useState<PredictionDraft>(init.draft)
   const [adj1Hint, setAdj1Hint] = useState(init.adj1Hint)
   const [errors, setErrors] = useState<DraftErrors>({})
-  const [showMarket, setShowMarket] = useState(Boolean(draft.dow || draft.nasdaq || draft.usdjpy))
+  const [showDetails, setShowDetails] = useState(false)
+  const [showDate, setShowDate] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState<PredictionRecord | null>(null)
 
@@ -142,7 +149,11 @@ export function TonightScreen({ records, settings, editId, onSave, onOpenResult 
     const res = recordFromDraft(d, base, records)
     if (!res.ok) {
       setErrors(res.errors)
-      if (res.errors.dow || res.errors.nasdaq || res.errors.usdjpy) setShowMarket(true)
+      // 「詳細」の中の欄に誤りがあれば開いて見せる
+      const visible = new Set(['futures', 'morningFutures', ...(isMorning ? draft.morningAdj2 : draft.adj2).flatMap((a) => [`${a.id}.note`, `${a.id}.amount`])])
+      if (isMorning) visible.delete('futures')
+      if (Object.keys(res.errors).some((k) => !visible.has(k) && k !== 'targetDate')) setShowDetails(true)
+      if (res.errors.targetDate) setShowDate(true)
       scrollToFirstError()
       return
     }
@@ -160,24 +171,16 @@ export function TonightScreen({ records, settings, editId, onSave, onOpenResult 
 
   if (saved) return <SavedPanel record={saved} voteUrl={settings.links.vote} onBack={() => setSaved(null)} />
 
-  const nightInputs = (
-    <>
-      <NumberField
-        label="先物（投票時）"
-        value={draft.futures}
-        onChange={(v) => set({ futures: v })}
-        error={errors.futures}
-        large
-        placeholder={base?.directPrediction != null ? '記録なし' : '例：70050'}
-        autoFocus={!draft.id}
-        suffix="円"
-        link={settings.links.futures}
-      />
-      <AmountField label="補正①（先物と日経平均の値の差）" value={draft.adj1} onChange={(v) => set({ adj1: v })} error={errors.adj1} hint={adj1Hint} />
-      <div className="section-label">補正②（自分の判断による補正）</div>
-      <AdjustmentsEditor items={draft.adj2} onChange={(adj2) => set({ adj2 })} settings={settings} errors={errors} />
-    </>
+  const adj2Editor = isMorning ? (
+    <AdjustmentsEditor items={draft.morningAdj2} onChange={(morningAdj2) => set({ morningAdj2 })} settings={settings} errors={errors} />
+  ) : (
+    <AdjustmentsEditor items={draft.adj2} onChange={(adj2) => set({ adj2 })} settings={settings} errors={errors} />
   )
+  const adj1 = isMorning ? draft.morningAdj1 : draft.adj1
+  const adj1Parsed = parseNumber(adj1) ?? 0
+  const adj1Value = Number.isNaN(adj1Parsed) ? null : adj1Parsed
+  const adj2Sum = previewAdj2Sum(isMorning ? draft.morningAdj2 : draft.adj2)
+  const status = isMorning ? '朝に修正' : base ? '保存済みの予想を編集' : ''
 
   return (
     <div className="screen with-footer">
@@ -197,90 +200,107 @@ export function TonightScreen({ records, settings, editId, onSave, onOpenResult 
         </div>
       )}
 
-      <div className="title-row">
-        <h1>{base ? '予想を編集' : '今夜の予想'}</h1>
-        {draft.voteTime && <span className="muted">投票時刻 {formatTime(draft.voteTime)}</span>}
+      <div className="target-row">
+        <button type="button" className="date-chip" onClick={() => setShowDate(!showDate)}>
+          対象日 {formatDateJa(draft.targetDate)} <span className="caret">▾</span>
+        </button>
+        {status && <span className="status">{status}</span>}
       </div>
-
-      <div className={`field${errors.targetDate ? ' has-error' : ''}`}>
-        <label>対象日（終値を当てる日）</label>
-        <div className="input-row">
+      {showDate && (
+        <div className={`field${errors.targetDate ? ' has-error' : ''}`}>
           <input type="date" value={draft.targetDate} onChange={(e) => changeTargetDate(e.target.value)} />
-          <span className="suffix">{draft.targetDate && formatDateJa(draft.targetDate).slice(-3)}</span>
-        </div>
-        {base && !errors.targetDate && (
           <p className="hint">
-            {editId ? '対象日を変えると、この記録の対象日が変わります' : 'この日の記録はすでにあるので、その記録を編集します。日付を変えると新しい予想になります'}
+            {editId ? '対象日を変えると、この記録の対象日が変わります' : '祝日などで違うときだけ変えてください。日付を変えるとその日の予想になります'}
           </p>
-        )}
-        {errors.targetDate && <p className="error">{errors.targetDate}</p>}
-      </div>
-
-      <div className="field">
-        <label>投票区分</label>
-        <div className="segmented">
-          <button type="button" className={!isMorning ? 'on' : ''} onClick={() => set({ voteType: 'night' })}>
-            夜に投票
-          </button>
-          <button type="button" className={isMorning ? 'on' : ''} disabled={!base} onClick={() => setDraft(startMorningFix(draft, new Date()))}>
-            朝に修正
-          </button>
+          {errors.targetDate && <p className="error">{errors.targetDate}</p>}
         </div>
-        {!base && <p className="hint">「朝に修正」は夜の予想を保存した後に選べます</p>}
-      </div>
-
-      {isMorning ? (
-        <>
-          <NumberField
-            label="先物（修正時）"
-            value={draft.morningFutures}
-            onChange={(v) => set({ morningFutures: v })}
-            error={errors.morningFutures}
-            large
-            placeholder="例：70300"
-            suffix="円"
-            link={settings.links.futures}
-          />
-          <AmountField label="補正①（先物と日経平均の値の差）" value={draft.morningAdj1} onChange={(v) => set({ morningAdj1: v })} error={errors.morningAdj1} />
-          <div className="section-label">補正②（自分の判断による補正）</div>
-          <AdjustmentsEditor items={draft.morningAdj2} onChange={(morningAdj2) => set({ morningAdj2 })} settings={settings} errors={errors} />
-          <details className="box" open={Boolean(errors.futures || draft.adj2.some((a) => errors[`${a.id}.note`] || errors[`${a.id}.amount`]))}>
-            <summary>
-              夜の予想 {fmt(nightPreview)}（先物 {draft.futures || '記録なし'}）
-            </summary>
-            {nightInputs}
-          </details>
-        </>
-      ) : (
-        nightInputs
       )}
 
-      <details className="box" open={showMarket} onToggle={(e) => setShowMarket(e.currentTarget.open)}>
-        <summary>ダウ・ナスダック・ドル円の前日比（任意）</summary>
-        <NumberField label="ダウ" value={draft.dow} onChange={(v) => set({ dow: v })} error={errors.dow} signed suffix="%" link={settings.links.dow} />
-        <NumberField label="ナスダック" value={draft.nasdaq} onChange={(v) => set({ nasdaq: v })} error={errors.nasdaq} signed suffix="%" link={settings.links.nasdaq} />
-        <NumberField label="ドル円" value={draft.usdjpy} onChange={(v) => set({ usdjpy: v })} error={errors.usdjpy} signed suffix="%" link={settings.links.usdjpy} />
-      </details>
+      {isMorning ? (
+        <NumberField
+          label="先物（修正時）"
+          value={draft.morningFutures}
+          onChange={(v) => set({ morningFutures: v })}
+          error={errors.morningFutures}
+          large
+          placeholder="例：70300"
+          suffix="円"
+          link={settings.links.futures}
+        />
+      ) : (
+        <NumberField
+          label="先物（投票時）"
+          value={draft.futures}
+          onChange={(v) => set({ futures: v })}
+          error={errors.futures}
+          large
+          placeholder={base?.directPrediction != null ? '記録なし' : '例：70050'}
+          autoFocus={!draft.id}
+          suffix="円"
+          link={settings.links.futures}
+        />
+      )}
 
-      <div className="field">
-        <label>寝た後の予定（複数選択可）</label>
-        <div className="chips">
-          {EVENT_KINDS.map((e) => (
-            <button key={e} type="button" className={`chip${draft.events.includes(e) ? ' on' : ''}`} onClick={() => set({ events: toggleEvent(draft.events, e) })}>
-              {e}
-            </button>
-          ))}
+      {adj2Editor}
+
+      <details className="box" open={showDetails} onToggle={(e) => setShowDetails(e.currentTarget.open)}>
+        <summary>詳細（補正①・前日比・寝た後の予定）</summary>
+
+        {isMorning ? (
+          <AmountField label="補正①（先物と日経平均の値の差）" value={draft.morningAdj1} onChange={(v) => set({ morningAdj1: v })} error={errors.morningAdj1} />
+        ) : (
+          <AmountField label="補正①（先物と日経平均の値の差）" value={draft.adj1} onChange={(v) => set({ adj1: v })} error={errors.adj1} hint={adj1Hint} />
+        )}
+
+        <NumberField label="ダウ（前日比）" value={draft.dow} onChange={(v) => set({ dow: v })} error={errors.dow} signed suffix="%" link={settings.links.dow} />
+        <NumberField label="ナスダック（前日比）" value={draft.nasdaq} onChange={(v) => set({ nasdaq: v })} error={errors.nasdaq} signed suffix="%" link={settings.links.nasdaq} />
+        <NumberField label="ドル円（前日比）" value={draft.usdjpy} onChange={(v) => set({ usdjpy: v })} error={errors.usdjpy} signed suffix="%" link={settings.links.usdjpy} />
+
+        <div className="field">
+          <label>寝た後の予定（複数選択可）</label>
+          <div className="chips">
+            {EVENT_KINDS.map((e) => (
+              <button key={e} type="button" className={`chip${draft.events.includes(e) ? ' on' : ''}`} onClick={() => set({ events: toggleEvent(draft.events, e) })}>
+                {e}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+
+        {isMorning && (
+          <div className="sub-box">
+            <div className="section-label">夜の予想 {fmt(nightPreview)}</div>
+            <NumberField label="先物（投票時）" value={draft.futures} onChange={(v) => set({ futures: v })} error={errors.futures} suffix="円" placeholder={base?.directPrediction != null ? '記録なし' : undefined} />
+            <AmountField label="補正①" value={draft.adj1} onChange={(v) => set({ adj1: v })} error={errors.adj1} />
+            <div className="section-label">補正②</div>
+            <AdjustmentsEditor items={draft.adj2} onChange={(adj2) => set({ adj2 })} settings={settings} errors={errors} />
+          </div>
+        )}
+
+        <div className="field">
+          <label>投票区分：{isMorning ? '朝に修正' : '夜に投票'}</label>
+          {isMorning ? (
+            <button type="button" className="secondary" onClick={() => set({ voteType: 'night' })}>
+              朝の修正をやめて「夜に投票」に戻す
+            </button>
+          ) : base ? (
+            <button type="button" className="secondary" onClick={() => setDraft(startMorningFix(draft, new Date()))}>
+              「朝に修正」にする
+            </button>
+          ) : (
+            <p className="hint">対象日の朝に開くと、自動で「朝に修正」になります</p>
+          )}
+          {draft.voteTime && <p className="hint">夜の投票時刻 {formatTime(draft.voteTime)}</p>}
+        </div>
+      </details>
 
       <div className="footer-bar">
         <div className="preview">
           <div className="preview-label">{isMorning ? '予想値（朝に修正）' : '予想値'}</div>
           <div className="preview-value">{fmt(finalPreview)}</div>
           <div className="preview-sub">
-            {isMorning
-              ? `夜の予想値 ${fmt(nightPreview)}`
-              : `補正② 合計 ${fmtSigned(previewAdj2Sum(draft.adj2))}`}
+            補正① {fmtSigned(adj1Value)}・補正② {fmtSigned(adj2Sum)}
+            {isMorning && `・夜 ${fmt(nightPreview)}`}
           </div>
         </div>
         <button type="button" className="primary" onClick={save} disabled={saving}>

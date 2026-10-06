@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { compute, finalInputs } from '../calc/calc'
+import { compute, finalInputs, missingResults } from '../calc/calc'
 import { formatDateJa, formatDateTime } from '../calc/dates'
 import type { Adjustment, PredictionRecord } from '../types'
 import { VOTE_TYPE_LABEL } from '../types'
@@ -49,6 +49,12 @@ export function DetailScreen({ record: r, onBack, onEditPrediction, onEditResult
         <h1>{formatDateJa(r.targetDate)}</h1>
         <span className="tag">{VOTE_TYPE_LABEL[c.voteType]}</span>
       </div>
+
+      {missingResults(r).length > 0 && (
+        <button type="button" className="primary wide result-cta" onClick={onEditResult}>
+          結果を入力する（{missingResults(r).join('・')}が未入力）
+        </button>
+      )}
 
       <div className="calc-box">
         <Row label="予想値" value={fmt(c.prediction)} strong />

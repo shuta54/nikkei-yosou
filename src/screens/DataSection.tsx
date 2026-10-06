@@ -98,7 +98,7 @@ export function DataSection({ settings, recordCount, onSettingsChange, onImporte
 
   return (
     <>
-      <h1 className="section-title">設定とデータ</h1>
+      <h2 className="section-title">設定とデータ</h2>
 
       <div className="card">
         <h3>補正②の理由の種類</h3>

@@ -32,6 +32,7 @@ export function ResultScreen({ record, links, onSave, onBack }: Props) {
   useEffect(() => saveCached(cacheKey, draft), [cacheKey, draft])
   const [errors, setErrors] = useState<DraftErrors>({})
   const [saving, setSaving] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
   const set = (patch: Partial<ResultDraft>) => setDraft((d) => ({ ...d, ...patch }))
   const c = compute(previewRecord(record, draft))
   const prefilledFromMorning = record.futuresNextMorning == null && record.morning != null
@@ -40,6 +41,7 @@ export function ResultScreen({ record, links, onSave, onBack }: Props) {
     const res = applyResultDraft(draft, record)
     if (!res.ok) {
       setErrors(res.errors)
+      if (res.errors.futuresNextMorning || res.errors.open || res.errors.futuresAtClose) setShowDetails(true)
       scrollToFirstError()
       return
     }
@@ -62,25 +64,7 @@ export function ResultScreen({ record, links, onSave, onBack }: Props) {
         <span className="muted">予想値 {fmt(c.prediction)}</span>
       </div>
 
-      <NumberField
-        label="先物（翌朝の夜間取引の終値）"
-        value={draft.futuresNextMorning}
-        onChange={(v) => set({ futuresNextMorning: v })}
-        error={errors.futuresNextMorning}
-        link={links.futures}
-        hint={prefilledFromMorning ? '朝に修正したときの先物を入れています' : undefined}
-        suffix="円"
-      />
-      <NumberField label="始値" value={draft.open} onChange={(v) => set({ open: v })} error={errors.open} suffix="円" />
       <NumberField label="終値" value={draft.close} onChange={(v) => set({ close: v })} error={errors.close} large suffix="円" />
-      <NumberField
-        label="終値が出た頃の先物（任意）"
-        value={draft.futuresAtClose}
-        onChange={(v) => set({ futuresAtClose: v })}
-        error={errors.futuresAtClose}
-        hint={c.adj1Suggestion != null ? `次回の補正①の初期値：${fmtSigned(Math.round(c.adj1Suggestion))}（終値 − この値 ＝ ${fmtSigned(c.adj1Suggestion)}）` : undefined}
-        suffix="円"
-      />
       <div className={`field${errors.rank ? ' has-error' : ''}`}>
         <div className="label-row">
           <label>順位</label>
@@ -94,25 +78,45 @@ export function ResultScreen({ record, links, onSave, onBack }: Props) {
         </div>
         {(errors.rank || errors.total) && <p className="error">{errors.rank || errors.total}</p>}
       </div>
-
-      <div className="calc-box">
-        <Row label="予想誤差" value={fmtSigned(c.error)} strong />
-        {c.voteType === 'morning' && <Row label="夜の予想の誤差" value={fmtSigned(c.nightError)} />}
-        <Row label="先物のみの誤差" value={fmtSigned(c.futuresOnlyError)} />
-        <Row label="補正の効果" value={fmtSigned(c.correctionEffect)} />
-        <Row label="夜間の動き" value={fmtSigned(c.overnightMove)} />
-        <Row label="寄り付きの差" value={fmtSigned(c.openingGap)} />
-        <Row label="日中の動き" value={fmtSigned(c.intradayMove)} />
-      </div>
-
       <div className="field">
         <label>振り返り・感想</label>
-        <textarea rows={4} value={draft.review} onChange={(e) => set({ review: e.target.value })} />
+        <textarea rows={3} value={draft.review} onChange={(e) => set({ review: e.target.value })} />
       </div>
-      <div className="field">
-        <label>AIによる改善点</label>
-        <textarea rows={4} value={draft.aiNotes} onChange={(e) => set({ aiNotes: e.target.value })} placeholder="後から貼り付けられます" />
-      </div>
+
+      <details className="box" open={showDetails} onToggle={(e) => setShowDetails(e.currentTarget.open)}>
+        <summary>詳細（先物・始値・AIによる改善点）</summary>
+        <NumberField
+          label="先物（翌朝の夜間取引の終値）"
+          value={draft.futuresNextMorning}
+          onChange={(v) => set({ futuresNextMorning: v })}
+          error={errors.futuresNextMorning}
+          link={links.futures}
+          hint={prefilledFromMorning ? '朝に修正したときの先物を入れています' : undefined}
+          suffix="円"
+        />
+        <NumberField label="始値" value={draft.open} onChange={(v) => set({ open: v })} error={errors.open} suffix="円" />
+        <NumberField
+          label="終値が出た頃の先物（任意）"
+          value={draft.futuresAtClose}
+          onChange={(v) => set({ futuresAtClose: v })}
+          error={errors.futuresAtClose}
+          link={links.futures}
+          hint={c.adj1Suggestion != null ? `次回の補正①の初期値：${fmtSigned(Math.round(c.adj1Suggestion))}（終値 − この値 ＝ ${fmtSigned(c.adj1Suggestion)}）` : undefined}
+          suffix="円"
+        />
+        <div className="field">
+          <label>AIによる改善点</label>
+          <textarea rows={4} value={draft.aiNotes} onChange={(e) => set({ aiNotes: e.target.value })} placeholder="後から貼り付けられます" />
+        </div>
+        <div className="calc-box">
+          {c.voteType === 'morning' && <Row label="夜の予想の誤差" value={fmtSigned(c.nightError)} />}
+          <Row label="先物のみの誤差" value={fmtSigned(c.futuresOnlyError)} />
+          <Row label="補正の効果" value={fmtSigned(c.correctionEffect)} />
+          <Row label="夜間の動き" value={fmtSigned(c.overnightMove)} />
+          <Row label="寄り付きの差" value={fmtSigned(c.openingGap)} />
+          <Row label="日中の動き" value={fmtSigned(c.intradayMove)} />
+        </div>
+      </details>
 
       <div className="footer-bar">
         <div className="preview">

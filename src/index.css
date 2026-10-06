@@ -310,3 +310,23 @@ input[type='url'] {
 .pending-missing { font-size: 13px; color: var(--warn); }
 .link-missing { font-size: 12px; color: var(--muted); text-align: left; line-height: 1.4; }
 .saved-actions .link-missing { display: flex; align-items: center; padding: 0 4px; }
+
+/* 対象日（タップしたときだけ変更できる） */
+.target-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 8px; }
+.date-chip { background: none; border: none; padding: 8px 0; min-height: 44px; color: var(--muted); font-size: 15px; }
+.date-chip .caret { font-size: 11px; }
+.status { font-size: 12px; color: var(--accent); border: 1px solid var(--accent); border-radius: 6px; padding: 2px 8px; }
+.sub-box { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 4px; }
+details.box > summary { list-style: none; }
+details.box > summary::-webkit-details-marker { display: none; }
+details.box > summary::after { content: '＋'; margin-left: auto; padding-left: 8px; }
+details.box[open] > summary::after { content: '−'; }
+
+.result-cta { font-size: 16px; }
+details.more { padding-bottom: 8px; }
+details.more .card { background: var(--bg); }
+.section-title { font-size: 18px; color: var(--text); margin-top: 24px; }
+
+.label-row > label { white-space: nowrap; }
+.label-row .link-missing { font-size: 11px; text-align: right; }
+.date-chip .caret { font-size: 13px; }

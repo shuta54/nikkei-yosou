@@ -8,6 +8,7 @@ import {
   resultDraftFromRecord,
   startMorningFix,
   toggleEvent,
+  tonightDraft,
 } from '../src/form/draft'
 import { parseNumber } from '../src/form/parse'
 import { rec1002, rec1005 } from './fixtures'
@@ -134,5 +135,37 @@ describe('入力の補助', () => {
   it('寝た後の予定の「なし」は他と同時に選べない', () => {
     expect(toggleEvent(['経済指標'], 'なし')).toEqual(['なし'])
     expect(toggleEvent(['なし'], '経済指標')).toEqual(['経済指標'])
+  })
+})
+
+describe('tonightDraft（投票区分を自動で決める）', () => {
+  const night1006 = { ...rec1005, id: 'n', targetDate: '2026-10-07', close: undefined, rank: undefined }
+  it('夜に開くと翌営業日の新しい夜の予想', () => {
+    const { draft } = tonightDraft([rec1005], new Date(2026, 9, 6, 22, 0))
+    expect(draft.targetDate).toBe('2026-10-07')
+    expect(draft.id).toBeUndefined()
+    expect(draft.voteType).toBe('night')
+  })
+  it('保存した夜にもう一度開くと、その記録を夜の予想のまま出す', () => {
+    const { draft } = tonightDraft([night1006], new Date(2026, 9, 6, 23, 0))
+    expect(draft.id).toBe('n')
+    expect(draft.voteType).toBe('night')
+  })
+  it('対象日の朝に開くと自動で「朝に修正」になり、夜の補正を写す', () => {
+    const { draft } = tonightDraft([night1006], new Date(2026, 9, 7, 7, 30))
+    expect(draft.id).toBe('n')
+    expect(draft.voteType).toBe('morning')
+    expect(draft.morningFutures).toBe('')
+    expect(draft.morningAdj2[0].amount).toBe('50')
+  })
+  it('対象日の朝でも記録がなければ夜の新しい予想', () => {
+    const { draft } = tonightDraft([], new Date(2026, 9, 7, 7, 30))
+    expect(draft.targetDate).toBe('2026-10-07')
+    expect(draft.voteType).toBe('night')
+  })
+  it('土曜の朝は月曜の予想で、朝に修正にはしない', () => {
+    const mon = { ...night1006, targetDate: '2026-10-12' }
+    const { draft } = tonightDraft([mon], new Date(2026, 9, 10, 9, 0))
+    expect(draft.voteType).toBe('night')
   })
 })
